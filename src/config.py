@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+import json
+
+
+@dataclass
+class MMseqsConfig:
+    sensitivity: float = 7.5
+    min_seq_id: float = 0.15
+    evalue: float = 1e-3
+    max_seqs: int = 5000
+    cov_mode: int = 0
+    min_coverage: float = 0.0
+    alt_ali: int = 20
+
+
+@dataclass
+class FilterHitsConfig:
+    min_bits: float = 30.0
+    min_aln_len: int = 50
+    min_pident: float = 15.0
+
+
+@dataclass
+class FilterProteinConfig:
+    min_length: int = 500
+    min_hits_per_protein: int = 3
+    min_unique_families: int = 2
+    min_unique_members: int = 2
+    min_cluster_span_coverage: float = 0.20
+    min_union_covered_len: int = 200
+    min_union_coverage: float = 0.08
+    max_gap_between_hits: int = 120
+    require_repeated_family: bool = False
+
+
+@dataclass
+class PlotHitFilterConfig:
+    min_bits: float = 35.0
+    min_aln_len: int = 60
+    min_pident: float = 15.0
+
+
+@dataclass
+class PlotConfig:
+    enabled: bool = True
+    sprb_module_table: str = ""
+    cluster_assignments_tsv: str = ""
+    cluster_summary_tsv: str = ""
+    sprb_length: int = 6497
+    top_n_candidates: int = 10
+    target_mode: str = "top_candidates"
+    specified_targets: list[str] = field(default_factory=list)
+    link_mode: str = "all"
+    save_png: bool = True
+    save_pdf: bool = True
+    save_html: bool = False
+    fig_width: int = 18
+    fig_track_height: float = 1.2
+    track_align_type: str = "center"
+    feature_track_ratio: float = 0.32
+    link_track_ratio: float = 0.90
+    theme: str = "light"
+    show_axis: bool = False
+    track_label_size: int = 16
+    track_label_margin: float = 0.02
+    track_align_label: bool = True
+    track_line_kws: dict = field(default_factory=lambda: {"color": "black", "lw": 0.8})
+    draw_labels: bool = True
+    feature_plotstyle: str = "box"
+    feature_linewidth: float = 0.6
+    feature_labelsize: int = 8
+    feature_text_rotation: int = 90
+    show_target_labels: bool = False
+    link_curve: bool = True
+    link_size: float = 0.9
+    link_alpha_min: float = 0.12
+    link_alpha_max: float = 0.80
+    dpi: int = 300
+
+
+@dataclass
+class RunConfig:
+    query_fasta: str
+    target_fasta: str
+    output_dir: str
+    mmseqs_bin: str = "mmseqs"
+    threads: int = 8
+    force_rerun: bool = True
+    verbose: bool = True
+    mmseqs: MMseqsConfig = field(default_factory=MMseqsConfig)
+    filter_hits: FilterHitsConfig = field(default_factory=FilterHitsConfig)
+    filter_protein: FilterProteinConfig = field(default_factory=FilterProteinConfig)
+    plot_filter_hits: PlotHitFilterConfig = field(default_factory=PlotHitFilterConfig)
+    plot: PlotConfig = field(default_factory=PlotConfig)
+
+
+def _load_yaml_or_json(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".json":
+        return json.loads(text)
+
+    try:
+        import yaml  # type: ignore
+    except ImportError as exc:
+        raise ImportError(
+            "YAML config requested but PyYAML is not installed. Use JSON or install PyYAML."
+        ) from exc
+    return yaml.safe_load(text)
+
+
+def load_config(path: str | Path) -> RunConfig:
+    raw = _load_yaml_or_json(Path(path))
+    mmseqs = MMseqsConfig(**raw.get("mmseqs", {}))
+    filter_hits = FilterHitsConfig(**raw.get("filter_hits", {}))
+    filter_protein = FilterProteinConfig(**raw.get("filter_protein", {}))
+    plot_filter_hits = PlotHitFilterConfig(**raw.get("plot_filter_hits", raw.get("plot_hits_filter", {})))
+    plot = PlotConfig(**raw.get("plot", {}))
+
+    base_fields = {
+        key: value
+        for key, value in raw.items()
+        if key not in {"mmseqs", "filter_hits", "filter_protein", "plot_filter_hits", "plot_hits_filter", "plot"}
+    }
+    return RunConfig(
+        mmseqs=mmseqs,
+        filter_hits=filter_hits,
+        filter_protein=filter_protein,
+        plot_filter_hits=plot_filter_hits,
+        plot=plot,
+        **base_fields,
+    )
+
+
+def config_to_dict(config: RunConfig) -> dict:
+    return asdict(config)
+

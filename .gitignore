@@ -1,0 +1,12 @@
+.idea/
+__pycache__/
+*.pyc
+
+tmp_mmseqs/
+output/
+plots/
+logs/
+by_target/
+ncbi_gliding_genomes/
+sprb_blast_screen_output/
+clinker_sprb_loci_all/

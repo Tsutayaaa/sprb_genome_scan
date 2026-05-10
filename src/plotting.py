@@ -1,0 +1,188 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+
+from .config import PlotConfig
+from .load_panel import load_sprb_module_table
+from .utils import safe_filename, short_module_name
+
+
+def build_family_color_map(families: list[str]) -> dict[str, str]:
+    unique_fams = sorted(set(families))
+    base_colors = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+        "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+        "#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#b07aa1",
+        "#9c755f", "#ff9da7", "#bab0ab", "#86bc86", "#499894",
+    ]
+    return {family: base_colors[i % len(base_colors)] for i, family in enumerate(unique_fams)}
+
+
+def build_ref_rows_for_hit(sprb_df: pd.DataFrame, hit_row: pd.Series, plot_cfg: PlotConfig) -> pd.DataFrame:
+    family = hit_row["query_family"]
+    member = hit_row["query_member"]
+    if plot_cfg.link_mode == "all":
+        return sprb_df[sprb_df["family"] == family]
+    if plot_cfg.link_mode == "best":
+        ref_rows = sprb_df[
+            (sprb_df["family"].astype(str) == str(family)) &
+            (sprb_df["module"].astype(str) == str(member))
+        ]
+        if ref_rows.empty:
+            member_domain = f"domain_{member}" if not str(member).startswith("domain_") else str(member)
+            ref_rows = sprb_df[
+                (sprb_df["family"].astype(str) == str(family)) &
+                (sprb_df["module"].astype(str) == member_domain)
+            ]
+        if ref_rows.empty:
+            ref_rows = sprb_df[sprb_df["family"] == family].head(1)
+        return ref_rows
+    raise ValueError(f"Unsupported PLOT_LINK_MODE: {plot_cfg.link_mode}")
+
+
+def map_similarity_to_alpha(
+    value: float,
+    vmin: float,
+    vmax: float,
+    alpha_min: float,
+    alpha_max: float,
+) -> float:
+    if pd.isna(value):
+        return alpha_min
+    if vmax <= vmin:
+        return alpha_max
+    scaled = (value - vmin) / (vmax - vmin)
+    scaled = max(0.0, min(1.0, scaled))
+    return alpha_min + scaled * (alpha_max - alpha_min)
+
+
+def plot_candidate_architecture(
+    sprb_df: pd.DataFrame,
+    hits_df: pd.DataFrame,
+    target_id: str,
+    outdir: str | Path,
+    plot_cfg: PlotConfig,
+    output_prefix: str = "sprb_candidate_architecture",
+) -> None:
+    from pygenomeviz import GenomeViz
+
+    sub = hits_df[hits_df["target"] == target_id].copy()
+    if sub.empty:
+        return
+
+    sub = sub.sort_values("tmin").copy()
+    target_len = int(sub["tlen"].max())
+    color_map = build_family_color_map(list(sprb_df["family"]) + list(sub["query_family"]))
+    sim_vmin = float(sub["pident"].min()) if "pident" in sub.columns and len(sub) > 0 else 0.0
+    sim_vmax = float(sub["pident"].max()) if "pident" in sub.columns and len(sub) > 0 else 100.0
+
+    gv = GenomeViz(
+        fig_width=plot_cfg.fig_width,
+        fig_track_height=plot_cfg.fig_track_height,
+        track_align_type=plot_cfg.track_align_type,
+        feature_track_ratio=plot_cfg.feature_track_ratio,
+        link_track_ratio=plot_cfg.link_track_ratio,
+        theme=plot_cfg.theme,
+        show_axis=plot_cfg.show_axis,
+    )
+    sprb_track = gv.add_feature_track(
+        "Fj SprB",
+        segments=plot_cfg.sprb_length,
+        labelsize=plot_cfg.track_label_size,
+        labelmargin=plot_cfg.track_label_margin,
+        align_label=plot_cfg.track_align_label,
+        line_kws=plot_cfg.track_line_kws,
+    )
+    for _, row in sprb_df.sort_values("order_index").iterrows():
+        sprb_track.add_feature(
+            int(row["start"]),
+            int(row["end"]),
+            label=short_module_name(row["module"]) if plot_cfg.draw_labels else "",
+            plotstyle=plot_cfg.feature_plotstyle,
+            fc=color_map.get(row["family"], "#cccccc"),
+            ec="black",
+            lw=plot_cfg.feature_linewidth,
+            text_kws=dict(size=plot_cfg.feature_labelsize, rotation=plot_cfg.feature_text_rotation),
+        )
+
+    target_track = gv.add_feature_track(
+        target_id,
+        segments=target_len,
+        labelsize=plot_cfg.track_label_size,
+        labelmargin=plot_cfg.track_label_margin,
+        align_label=plot_cfg.track_align_label,
+        line_kws=plot_cfg.track_line_kws,
+    )
+    for _, row in sub.iterrows():
+        target_track.add_feature(
+            int(row["tmin"]),
+            int(row["tmax"]),
+            label=row["query_family"] if (plot_cfg.draw_labels and plot_cfg.show_target_labels) else "",
+            plotstyle=plot_cfg.feature_plotstyle,
+            fc=color_map.get(row["query_family"], "#cccccc"),
+            ec="black",
+            lw=plot_cfg.feature_linewidth,
+            text_kws=dict(size=plot_cfg.feature_labelsize, rotation=plot_cfg.feature_text_rotation),
+        )
+
+    for _, hit in sub.iterrows():
+        alpha = map_similarity_to_alpha(
+            float(hit["pident"]) if "pident" in hit else None,
+            sim_vmin,
+            sim_vmax,
+            plot_cfg.link_alpha_min,
+            plot_cfg.link_alpha_max,
+        )
+        ref_rows = build_ref_rows_for_hit(sprb_df, hit, plot_cfg)
+        for _, ref in ref_rows.iterrows():
+            gv.add_link(
+                ("Fj SprB", int(ref["start"]), int(ref["end"])),
+                (target_id, int(hit["tmin"]), int(hit["tmax"])),
+                color=color_map.get(hit["query_family"], "#999999"),
+                alpha=alpha,
+                size=plot_cfg.link_size,
+                curve=plot_cfg.link_curve,
+            )
+
+    gv.set_scale_bar()
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    safe_target = safe_filename(target_id)
+    if plot_cfg.save_png:
+        gv.savefig(outdir / f"{output_prefix}_{safe_target}.png", dpi=plot_cfg.dpi)
+    if plot_cfg.save_pdf:
+        gv.savefig(outdir / f"{output_prefix}_{safe_target}.pdf", dpi=plot_cfg.dpi)
+    if plot_cfg.save_html:
+        fig = gv.plotfig(dpi=plot_cfg.dpi, fast_render=False)
+        gv.savefig_html(outdir / f"{output_prefix}_{safe_target}.html", figure=fig)
+
+
+def run_plotting(candidate_df: pd.DataFrame, hits_df: pd.DataFrame, plot_cfg: PlotConfig, output_dir: str | Path) -> None:
+    sprb_df = load_sprb_module_table(
+        module_table_path=plot_cfg.sprb_module_table,
+        cluster_assignments_path=plot_cfg.cluster_assignments_tsv or None,
+        cluster_summary_path=plot_cfg.cluster_summary_tsv or None,
+    )
+
+    if plot_cfg.target_mode == "top_candidates":
+        if "pass_candidate_filter" in candidate_df.columns:
+            plot_targets = candidate_df[candidate_df["pass_candidate_filter"] == True]["target"].head(plot_cfg.top_n_candidates).tolist()
+        else:
+            plot_targets = candidate_df["target"].head(plot_cfg.top_n_candidates).tolist()
+        if len(plot_targets) < plot_cfg.top_n_candidates:
+            extra = candidate_df["target"].head(plot_cfg.top_n_candidates).tolist()
+            merged = []
+            for target in plot_targets + extra:
+                if target not in merged:
+                    merged.append(target)
+            plot_targets = merged[:plot_cfg.top_n_candidates]
+    elif plot_cfg.target_mode == "specified":
+        plot_targets = plot_cfg.specified_targets
+    else:
+        raise ValueError(f"Unsupported PLOT_TARGET_MODE: {plot_cfg.target_mode}")
+
+    plot_dir = Path(output_dir) / "plots"
+    for target_id in plot_targets:
+        plot_candidate_architecture(sprb_df, hits_df, target_id, plot_dir, plot_cfg)

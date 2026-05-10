@@ -1,0 +1,53 @@
+query_fasta: "/path/to/sprb_smf_panel.fasta"
+target_fasta: "/path/to/target_proteins.faa"
+output_dir: "/path/to/output_dir"
+mmseqs_bin: "mmseqs"
+threads: 8
+force_rerun: true
+verbose: true
+
+mmseqs:
+  sensitivity: 7.5
+  min_seq_id: 0.15
+  evalue: 1e-3
+  max_seqs: 5000
+  cov_mode: 0
+  min_coverage: 0.0
+  alt_ali: 20
+
+filter_hits:
+  min_bits: 30
+  min_aln_len: 50
+  min_pident: 15
+
+filter_protein:
+  min_length: 500
+  min_hits_per_protein: 3
+  min_unique_families: 2
+  min_unique_members: 2
+  min_cluster_span_coverage: 0.2
+  min_union_covered_len: 200
+  min_union_coverage: 0.08
+  max_gap_between_hits: 120
+  require_repeated_family: false
+
+plot_filter_hits:
+  min_bits: 35
+  min_aln_len: 60
+  min_pident: 15
+
+plot:
+  enabled: true
+  sprb_module_table: "/path/to/domain_table.tsv"
+  cluster_assignments_tsv: "/path/to/cluster_assignments.tsv"
+  cluster_summary_tsv: "/path/to/cluster_summary.tsv"
+  sprb_length: 6497
+  top_n_candidates: 10
+  target_mode: "top_candidates"
+  specified_targets: []
+  link_mode: "all"
+  save_png: true
+  save_pdf: true
+  save_html: false
+  draw_labels: true
+
