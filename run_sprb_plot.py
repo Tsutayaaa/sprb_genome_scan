@@ -26,7 +26,7 @@ def discover_result_dirs(results_root: Path, results_mode: str) -> list[Path]:
     if mode not in {"auto", "single_result_dir", "per_genome_dirs"}:
         raise ValueError(f"Unsupported results_mode: {results_mode}")
 
-    required = {"hits.tsv", "sprb_like_candidates.tsv"}
+    required = {"blocks.tsv", "protein_hit_summary.tsv", "sprb_like_candidates.tsv"}
     if all((results_root / name).exists() for name in required):
         if mode in {"auto", "single_result_dir"}:
             return [results_root]

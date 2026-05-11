@@ -27,6 +27,7 @@ class ScanPaths:
     tmp_dir: Path
     raw_export_tsv: Path
     hits_out: Path
+    blocks_out: Path
     summary_out: Path
     candidates_out: Path
     logs_dir: Path
@@ -52,6 +53,7 @@ def build_scan_paths(output_dir: str | Path) -> ScanPaths:
         tmp_dir=tmp_dir,
         raw_export_tsv=tmp_dir / "mmseqs_raw.tsv",
         hits_out=output_dir / "hits.tsv",
+        blocks_out=output_dir / "blocks.tsv",
         summary_out=output_dir / "protein_hit_summary.tsv",
         candidates_out=output_dir / "sprb_like_candidates.tsv",
         logs_dir=output_dir / "logs",
@@ -224,7 +226,7 @@ def prepare_for_rerun(paths: ScanPaths, force_rerun: bool, logger: logging.Logge
     remove_prefix_artifacts(paths.result_db)
     if paths.tmp_dir.exists():
         shutil.rmtree(paths.tmp_dir)
-    for file_path in [paths.hits_out, paths.summary_out, paths.candidates_out]:
+    for file_path in [paths.hits_out, paths.blocks_out, paths.summary_out, paths.candidates_out]:
         if file_path.exists():
             file_path.unlink()
     if paths.plots_dir.exists():

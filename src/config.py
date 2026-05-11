@@ -26,14 +26,20 @@ class FilterHitsConfig:
 @dataclass
 class FilterProteinConfig:
     min_length: int = 500
-    min_hits_per_protein: int = 3
+    min_blocks: int = 2
     min_unique_families: int = 2
     min_unique_members: int = 2
     min_cluster_span_coverage: float = 0.20
     min_union_covered_len: int = 200
     min_union_coverage: float = 0.08
-    max_gap_between_hits: int = 120
-    require_repeated_family: bool = False
+    min_linearity_score: float = 0.70
+    max_order_inversions: int = 1
+    require_repeat_pattern: bool = True
+    repeat_min_motif_length: int = 2
+    repeat_max_motif_length: int = 4
+    repeat_min_occurrences: int = 2
+    repeat_max_gap_blocks: int = 1
+    min_repeat_count: int = 2
 
 
 @dataclass
@@ -44,12 +50,24 @@ class PlotHitFilterConfig:
 
 
 @dataclass
+class BlockMergeConfig:
+    overlap_rate_threshold: float = 0.90
+
+
+@dataclass
 class AssemblyMetadataConfig:
     enabled: bool = True
     report_path: str = ""
     report_path_relative_to: str = "target_input"
     display_name_source: str = "organism_name"
     output_dir_source: str = "organism_plus_accession"
+
+
+@dataclass
+class ReferencePanelConfig:
+    sprb_module_table: str = ""
+    cluster_assignments_tsv: str = ""
+    cluster_summary_tsv: str = ""
 
 
 @dataclass
@@ -105,7 +123,9 @@ class ScanConfig:
     filter_hits: FilterHitsConfig = field(default_factory=FilterHitsConfig)
     filter_protein: FilterProteinConfig = field(default_factory=FilterProteinConfig)
     plot_filter_hits: PlotHitFilterConfig = field(default_factory=PlotHitFilterConfig)
+    block_merge: BlockMergeConfig = field(default_factory=BlockMergeConfig)
     assembly_metadata: AssemblyMetadataConfig = field(default_factory=AssemblyMetadataConfig)
+    reference_panel: ReferencePanelConfig = field(default_factory=ReferencePanelConfig)
 
 
 @dataclass
@@ -138,11 +158,13 @@ def load_scan_config(path: str | Path) -> ScanConfig:
         filter_hits=FilterHitsConfig(**raw.get("filter_hits", {})),
         filter_protein=FilterProteinConfig(**raw.get("filter_protein", {})),
         plot_filter_hits=PlotHitFilterConfig(**raw.get("plot_filter_hits", raw.get("plot_hits_filter", {}))),
+        block_merge=BlockMergeConfig(**raw.get("block_merge", {})),
         assembly_metadata=AssemblyMetadataConfig(**raw.get("assembly_metadata", {})),
+        reference_panel=ReferencePanelConfig(**raw.get("reference_panel", {})),
         **{
             key: value
             for key, value in raw.items()
-            if key not in {"mmseqs", "filter_hits", "filter_protein", "plot_filter_hits", "plot_hits_filter", "plot", "assembly_metadata"}
+            if key not in {"mmseqs", "filter_hits", "filter_protein", "plot_filter_hits", "plot_hits_filter", "plot", "assembly_metadata", "block_merge", "reference_panel"}
         },
     )
     if not config.target_input:

@@ -1,5 +1,7 @@
 # SprB Genome Scan
 
+Version: `2.0.0`
+
 This repository now includes a modular SprB-like protein genome scan pipeline extracted from the prototype `sprb_module_mmseqs_scanner.py` while preserving its filtering logic, output fields, and plotting flow.
 
 The workflow is now split into two stages:
@@ -17,6 +19,7 @@ The workflow is now split into two stages:
 - `src/plotting.py`: render pyGenomeViz architecture plots
 - `configs/scan_config.json`: scan-stage configuration
 - `configs/plot_config.json`: plot-stage configuration
+- `reference_data/`: project-local copies of panel and reference table files
 - `run_sprb_scan.py`: HPC-friendly scan runner
 - `run_sprb_plot.py`: local plotting runner
 
@@ -64,9 +67,20 @@ python3 run_sprb_plot.py
 The scan stage saves the compact result files needed for downstream work:
 
 - `hits.tsv`
-- `protein_hit_summary.tsv`
+- `blocks.tsv`
+- `protein_hit_summary.tsv` generated from merged blocks with linearity and repeat-motif metrics
 - `sprb_like_candidates.tsv`
-- per-genome subdirectories with their own `hits.tsv`, `protein_hit_summary.tsv`, and `sprb_like_candidates.tsv`
+- per-genome subdirectories with their own `hits.tsv`, `blocks.tsv`, `protein_hit_summary.tsv`, and `sprb_like_candidates.tsv`
+
+Current candidate filtering is block-based and combines:
+
+- protein length
+- merged-block coverage
+- block count
+- reference-order linearity
+- repeat motif detection over ordered `best_family` blocks
+
+The plotting stage now renders merged blocks rather than every individual hit, so repeated overlapping hits are no longer drawn as duplicated target features.
 
 The plot stage writes:
 

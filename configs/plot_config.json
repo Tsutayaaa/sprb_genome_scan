@@ -4,9 +4,9 @@
   "results_mode": "per_genome_dirs",
   "verbose": true,
   "plot": {
-    "sprb_module_table": "/Users/shulei/Documents/2026_Chemotaxis/sprb_domains/domain_table.tsv",
-    "cluster_assignments_tsv": "/Users/shulei/Documents/2026_Chemotaxis/sprb_domains/grouped_for_hmm_blosum62/cluster_assignments.tsv",
-    "cluster_summary_tsv": "/Users/shulei/Documents/2026_Chemotaxis/sprb_domains/grouped_for_hmm_blosum62/cluster_summary.tsv",
+    "sprb_module_table": "reference_data/domain_table.tsv",
+    "cluster_assignments_tsv": "reference_data/cluster_assignments.tsv",
+    "cluster_summary_tsv": "reference_data/cluster_summary.tsv",
     "sprb_length": 6497,
     "top_n_candidates": 10,
     "target_mode": "top_candidates",

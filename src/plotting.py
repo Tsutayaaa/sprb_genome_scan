@@ -20,9 +20,9 @@ def build_family_color_map(families: list[str]) -> dict[str, str]:
     return {family: base_colors[i % len(base_colors)] for i, family in enumerate(unique_fams)}
 
 
-def build_ref_rows_for_hit(sprb_df: pd.DataFrame, hit_row: pd.Series, plot_cfg: PlotStyleConfig) -> pd.DataFrame:
-    family = hit_row["query_family"]
-    member = hit_row["query_member"]
+def build_ref_rows_for_block(sprb_df: pd.DataFrame, block_row: pd.Series, plot_cfg: PlotStyleConfig) -> pd.DataFrame:
+    family = block_row["best_family"]
+    member = block_row["best_member"]
     if plot_cfg.link_mode == "all":
         return sprb_df[sprb_df["family"] == family]
     if plot_cfg.link_mode == "best":
@@ -60,7 +60,7 @@ def map_similarity_to_alpha(
 
 def plot_candidate_architecture(
     sprb_df: pd.DataFrame,
-    hits_df: pd.DataFrame,
+    blocks_df: pd.DataFrame,
     target_id: str,
     outdir: str | Path,
     plot_cfg: PlotStyleConfig,
@@ -68,15 +68,15 @@ def plot_candidate_architecture(
 ) -> None:
     from pygenomeviz import GenomeViz
 
-    sub = hits_df[hits_df["target"] == target_id].copy()
+    sub = blocks_df[blocks_df["target"] == target_id].copy()
     if sub.empty:
         return
 
-    sub = sub.sort_values("tmin").copy()
+    sub = sub.sort_values("block_start").copy()
     target_len = int(sub["tlen"].max())
-    color_map = build_family_color_map(list(sprb_df["family"]) + list(sub["query_family"]))
-    sim_vmin = float(sub["pident"].min()) if "pident" in sub.columns and len(sub) > 0 else 0.0
-    sim_vmax = float(sub["pident"].max()) if "pident" in sub.columns and len(sub) > 0 else 100.0
+    color_map = build_family_color_map(list(sprb_df["family"]) + list(sub["best_family"]))
+    sim_vmin = float(sub["mean_pident"].min()) if "mean_pident" in sub.columns and len(sub) > 0 else 0.0
+    sim_vmax = float(sub["mean_pident"].max()) if "mean_pident" in sub.columns and len(sub) > 0 else 100.0
 
     gv = GenomeViz(
         fig_width=plot_cfg.fig_width,
@@ -116,31 +116,33 @@ def plot_candidate_architecture(
         line_kws=plot_cfg.track_line_kws,
     )
     for _, row in sub.iterrows():
+        family_label = str(row["best_family"])
         target_track.add_feature(
-            int(row["tmin"]),
-            int(row["tmax"]),
-            label=row["query_family"] if (plot_cfg.draw_labels and plot_cfg.show_target_labels) else "",
+            int(row["block_start"]),
+            int(row["block_end"]),
+            label=family_label if (plot_cfg.draw_labels and plot_cfg.show_target_labels) else "",
             plotstyle=plot_cfg.feature_plotstyle,
-            fc=color_map.get(row["query_family"], "#cccccc"),
+            fc=color_map.get(family_label, "#cccccc"),
             ec="black",
             lw=plot_cfg.feature_linewidth,
             text_kws=dict(size=plot_cfg.feature_labelsize, rotation=plot_cfg.feature_text_rotation),
         )
 
-    for _, hit in sub.iterrows():
+    for _, block in sub.iterrows():
+        family_label = str(block["best_family"])
         alpha = map_similarity_to_alpha(
-            float(hit["pident"]) if "pident" in hit else None,
+            float(block["mean_pident"]) if "mean_pident" in block else None,
             sim_vmin,
             sim_vmax,
             plot_cfg.link_alpha_min,
             plot_cfg.link_alpha_max,
         )
-        ref_rows = build_ref_rows_for_hit(sprb_df, hit, plot_cfg)
+        ref_rows = build_ref_rows_for_block(sprb_df, block, plot_cfg)
         for _, ref in ref_rows.iterrows():
             gv.add_link(
                 ("Fj SprB", int(ref["start"]), int(ref["end"])),
-                (target_id, int(hit["tmin"]), int(hit["tmax"])),
-                color=color_map.get(hit["query_family"], "#999999"),
+                (target_id, int(block["block_start"]), int(block["block_end"])),
+                color=color_map.get(family_label, "#999999"),
                 alpha=alpha,
                 size=plot_cfg.link_size,
                 curve=plot_cfg.link_curve,
@@ -159,14 +161,14 @@ def plot_candidate_architecture(
         gv.savefig_html(outdir / f"{output_prefix}_{safe_target}.html", figure=fig)
 
 
-def _select_plot_targets(candidate_df: pd.DataFrame, plot_cfg: PlotStyleConfig) -> list[str]:
+def _select_plot_targets(plot_source_df: pd.DataFrame, plot_cfg: PlotStyleConfig) -> list[str]:
     if plot_cfg.target_mode == "top_candidates":
-        if "pass_candidate_filter" in candidate_df.columns:
-            plot_targets = candidate_df[candidate_df["pass_candidate_filter"] == True]["target"].head(plot_cfg.top_n_candidates).tolist()
+        if "pass_candidate_filter" in plot_source_df.columns and plot_source_df["pass_candidate_filter"].any():
+            plot_targets = plot_source_df[plot_source_df["pass_candidate_filter"] == True]["target"].head(plot_cfg.top_n_candidates).tolist()
         else:
-            plot_targets = candidate_df["target"].head(plot_cfg.top_n_candidates).tolist()
+            plot_targets = plot_source_df["target"].head(plot_cfg.top_n_candidates).tolist()
         if len(plot_targets) < plot_cfg.top_n_candidates:
-            extra = candidate_df["target"].head(plot_cfg.top_n_candidates).tolist()
+            extra = plot_source_df["target"].head(plot_cfg.top_n_candidates).tolist()
             merged = []
             for target in plot_targets + extra:
                 if target not in merged:
@@ -178,22 +180,24 @@ def _select_plot_targets(candidate_df: pd.DataFrame, plot_cfg: PlotStyleConfig) 
     raise ValueError(f"Unsupported PLOT_TARGET_MODE: {plot_cfg.target_mode}")
 
 
-def run_plotting(candidate_df: pd.DataFrame, hits_df: pd.DataFrame, plot_cfg: PlotStyleConfig, output_dir: str | Path) -> list[str]:
+def run_plotting(plot_source_df: pd.DataFrame, blocks_df: pd.DataFrame, plot_cfg: PlotStyleConfig, output_dir: str | Path) -> list[str]:
     sprb_df = load_sprb_module_table(
         module_table_path=plot_cfg.sprb_module_table,
         cluster_assignments_path=plot_cfg.cluster_assignments_tsv or None,
         cluster_summary_path=plot_cfg.cluster_summary_tsv or None,
     )
-    plot_targets = _select_plot_targets(candidate_df, plot_cfg)
+    plot_targets = _select_plot_targets(plot_source_df, plot_cfg)
     plot_dir = Path(output_dir) / "plots"
     for target_id in plot_targets:
-        plot_candidate_architecture(sprb_df, hits_df, target_id, plot_dir, plot_cfg)
+        plot_candidate_architecture(sprb_df, blocks_df, target_id, plot_dir, plot_cfg)
     return plot_targets
 
 
 def run_plotting_for_result_dir(result_dir: str | Path, output_root: str | Path, plot_cfg: PlotStyleConfig) -> list[str]:
     result_dir = Path(result_dir)
-    hits_df = pd.read_csv(result_dir / "hits.tsv", sep="\t")
+    blocks_df = pd.read_csv(result_dir / "blocks.tsv", sep="\t")
+    summary_df = pd.read_csv(result_dir / "protein_hit_summary.tsv", sep="\t")
     candidate_df = pd.read_csv(result_dir / "sprb_like_candidates.tsv", sep="\t")
+    plot_source_df = candidate_df if len(candidate_df) > 0 else summary_df
     destination = Path(output_root) / result_dir.name if Path(output_root) != result_dir else result_dir
-    return run_plotting(candidate_df, hits_df, plot_cfg, destination)
+    return run_plotting(plot_source_df, blocks_df, plot_cfg, destination)
