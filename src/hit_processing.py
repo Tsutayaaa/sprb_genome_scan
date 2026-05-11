@@ -19,8 +19,27 @@ def summarize_by_protein(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=SUMMARY_COLUMNS)
 
     rows = []
-    for target, sub in df.groupby("target"):
+    group_cols = ["target"]
+    if "genome_name" in df.columns:
+        group_cols = ["genome_name", "target"]
+    if "target_fasta" in df.columns and "target_fasta" not in group_cols:
+        group_cols = ["genome_name", "target_fasta", "target"] if "genome_name" in df.columns else ["target_fasta", "target"]
+
+    for group_key, sub in df.groupby(group_cols):
         sub = sub.sort_values("tmin").copy()
+        if isinstance(group_key, tuple):
+            if len(group_cols) == 3:
+                genome_name, target_fasta, target = group_key
+            elif len(group_cols) == 2 and group_cols[0] == "genome_name":
+                genome_name, target = group_key
+                target_fasta = sub["target_fasta"].iloc[0] if "target_fasta" in sub.columns else ""
+            else:
+                target_fasta, target = group_key
+                genome_name = sub["genome_name"].iloc[0] if "genome_name" in sub.columns else ""
+        else:
+            target = group_key
+            genome_name = sub["genome_name"].iloc[0] if "genome_name" in sub.columns else ""
+            target_fasta = sub["target_fasta"].iloc[0] if "target_fasta" in sub.columns else ""
         tlen = int(sub["tlen"].max())
         cluster_start = int(sub["tmin"].min())
         cluster_end = int(sub["tmax"].max())
@@ -43,7 +62,7 @@ def summarize_by_protein(df: pd.DataFrame) -> pd.DataFrame:
 
         fam_counts = sub["query_family"].value_counts()
         repeated_fams = sorted(fam_counts[fam_counts >= 2].index.tolist())
-        rows.append({
+        row = {
             "target": target,
             "tlen": tlen,
             "n_hits": len(sub),
@@ -68,11 +87,21 @@ def summarize_by_protein(df: pd.DataFrame) -> pd.DataFrame:
             "family_list": ",".join(sorted(sub["query_family"].unique())),
             "member_list": ",".join(sorted(sub["query_member"].unique())),
             "query_list": ",".join(sub["query"].tolist()),
-        })
+        }
+        if "genome_name" in df.columns:
+            row["genome_name"] = genome_name
+        if "target_fasta" in df.columns:
+            row["target_fasta"] = target_fasta
+        rows.append(row)
 
     out = pd.DataFrame(rows)
+    ordered_cols = []
+    for col in ["genome_name", "target_fasta"]:
+        if col in out.columns:
+            ordered_cols.append(col)
+    ordered_cols.extend([col for col in SUMMARY_COLUMNS if col in out.columns])
+    out = out[ordered_cols]
     return out.sort_values(
-        ["n_unique_families", "union_coverage", "n_hits", "mean_bits"],
-        ascending=[False, False, False, False],
+        [col for col in ["n_unique_families", "union_coverage", "n_hits", "mean_bits"] if col in out.columns],
+        ascending=[False, False, False, False][: len([col for col in ["n_unique_families", "union_coverage", "n_hits", "mean_bits"] if col in out.columns])],
     )
-

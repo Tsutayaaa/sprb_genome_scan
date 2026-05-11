@@ -44,8 +44,7 @@ class PlotHitFilterConfig:
 
 
 @dataclass
-class PlotConfig:
-    enabled: bool = True
+class PlotStyleConfig:
     sprb_module_table: str = ""
     cluster_assignments_tsv: str = ""
     cluster_summary_tsv: str = ""
@@ -82,10 +81,13 @@ class PlotConfig:
 
 
 @dataclass
-class RunConfig:
+class ScanConfig:
     query_fasta: str
-    target_fasta: str
     output_dir: str
+    target_fasta: str = ""
+    target_input: str = ""
+    target_mode: str = "auto"
+    target_glob: str = "*_protein.faa"
     mmseqs_bin: str = "mmseqs"
     threads: int = 8
     force_rerun: bool = True
@@ -94,7 +96,15 @@ class RunConfig:
     filter_hits: FilterHitsConfig = field(default_factory=FilterHitsConfig)
     filter_protein: FilterProteinConfig = field(default_factory=FilterProteinConfig)
     plot_filter_hits: PlotHitFilterConfig = field(default_factory=PlotHitFilterConfig)
-    plot: PlotConfig = field(default_factory=PlotConfig)
+
+
+@dataclass
+class PlotConfig:
+    results_root: str
+    output_dir: str = ""
+    results_mode: str = "auto"
+    verbose: bool = True
+    plot: PlotStyleConfig = field(default_factory=PlotStyleConfig)
 
 
 def _load_yaml_or_json(path: Path) -> dict:
@@ -111,29 +121,36 @@ def _load_yaml_or_json(path: Path) -> dict:
     return yaml.safe_load(text)
 
 
-def load_config(path: str | Path) -> RunConfig:
+def load_scan_config(path: str | Path) -> ScanConfig:
     raw = _load_yaml_or_json(Path(path))
-    mmseqs = MMseqsConfig(**raw.get("mmseqs", {}))
-    filter_hits = FilterHitsConfig(**raw.get("filter_hits", {}))
-    filter_protein = FilterProteinConfig(**raw.get("filter_protein", {}))
-    plot_filter_hits = PlotHitFilterConfig(**raw.get("plot_filter_hits", raw.get("plot_hits_filter", {})))
-    plot = PlotConfig(**raw.get("plot", {}))
-
-    base_fields = {
-        key: value
-        for key, value in raw.items()
-        if key not in {"mmseqs", "filter_hits", "filter_protein", "plot_filter_hits", "plot_hits_filter", "plot"}
-    }
-    return RunConfig(
-        mmseqs=mmseqs,
-        filter_hits=filter_hits,
-        filter_protein=filter_protein,
-        plot_filter_hits=plot_filter_hits,
-        plot=plot,
-        **base_fields,
+    config = ScanConfig(
+        mmseqs=MMseqsConfig(**raw.get("mmseqs", {})),
+        filter_hits=FilterHitsConfig(**raw.get("filter_hits", {})),
+        filter_protein=FilterProteinConfig(**raw.get("filter_protein", {})),
+        plot_filter_hits=PlotHitFilterConfig(**raw.get("plot_filter_hits", raw.get("plot_hits_filter", {}))),
+        **{
+            key: value
+            for key, value in raw.items()
+            if key not in {"mmseqs", "filter_hits", "filter_protein", "plot_filter_hits", "plot_hits_filter", "plot"}
+        },
     )
+    if not config.target_input:
+        config.target_input = config.target_fasta
+    if not config.target_fasta:
+        config.target_fasta = config.target_input
+    return config
 
 
-def config_to_dict(config: RunConfig) -> dict:
+def load_plot_config(path: str | Path) -> PlotConfig:
+    raw = _load_yaml_or_json(Path(path))
+    config = PlotConfig(
+        plot=PlotStyleConfig(**raw.get("plot", {})),
+        **{key: value for key, value in raw.items() if key != "plot"},
+    )
+    if not config.output_dir:
+        config.output_dir = config.results_root
+    return config
+
+
+def config_to_dict(config: object) -> dict:
     return asdict(config)
-

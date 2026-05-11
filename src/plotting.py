@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .config import PlotConfig
+from .config import PlotStyleConfig
 from .load_panel import load_sprb_module_table
 from .utils import safe_filename, short_module_name
 
@@ -20,7 +20,7 @@ def build_family_color_map(families: list[str]) -> dict[str, str]:
     return {family: base_colors[i % len(base_colors)] for i, family in enumerate(unique_fams)}
 
 
-def build_ref_rows_for_hit(sprb_df: pd.DataFrame, hit_row: pd.Series, plot_cfg: PlotConfig) -> pd.DataFrame:
+def build_ref_rows_for_hit(sprb_df: pd.DataFrame, hit_row: pd.Series, plot_cfg: PlotStyleConfig) -> pd.DataFrame:
     family = hit_row["query_family"]
     member = hit_row["query_member"]
     if plot_cfg.link_mode == "all":
@@ -63,7 +63,7 @@ def plot_candidate_architecture(
     hits_df: pd.DataFrame,
     target_id: str,
     outdir: str | Path,
-    plot_cfg: PlotConfig,
+    plot_cfg: PlotStyleConfig,
     output_prefix: str = "sprb_candidate_architecture",
 ) -> None:
     from pygenomeviz import GenomeViz
@@ -159,13 +159,7 @@ def plot_candidate_architecture(
         gv.savefig_html(outdir / f"{output_prefix}_{safe_target}.html", figure=fig)
 
 
-def run_plotting(candidate_df: pd.DataFrame, hits_df: pd.DataFrame, plot_cfg: PlotConfig, output_dir: str | Path) -> None:
-    sprb_df = load_sprb_module_table(
-        module_table_path=plot_cfg.sprb_module_table,
-        cluster_assignments_path=plot_cfg.cluster_assignments_tsv or None,
-        cluster_summary_path=plot_cfg.cluster_summary_tsv or None,
-    )
-
+def _select_plot_targets(candidate_df: pd.DataFrame, plot_cfg: PlotStyleConfig) -> list[str]:
     if plot_cfg.target_mode == "top_candidates":
         if "pass_candidate_filter" in candidate_df.columns:
             plot_targets = candidate_df[candidate_df["pass_candidate_filter"] == True]["target"].head(plot_cfg.top_n_candidates).tolist()
@@ -178,11 +172,28 @@ def run_plotting(candidate_df: pd.DataFrame, hits_df: pd.DataFrame, plot_cfg: Pl
                 if target not in merged:
                     merged.append(target)
             plot_targets = merged[:plot_cfg.top_n_candidates]
-    elif plot_cfg.target_mode == "specified":
-        plot_targets = plot_cfg.specified_targets
-    else:
-        raise ValueError(f"Unsupported PLOT_TARGET_MODE: {plot_cfg.target_mode}")
+        return plot_targets
+    if plot_cfg.target_mode == "specified":
+        return plot_cfg.specified_targets
+    raise ValueError(f"Unsupported PLOT_TARGET_MODE: {plot_cfg.target_mode}")
 
+
+def run_plotting(candidate_df: pd.DataFrame, hits_df: pd.DataFrame, plot_cfg: PlotStyleConfig, output_dir: str | Path) -> list[str]:
+    sprb_df = load_sprb_module_table(
+        module_table_path=plot_cfg.sprb_module_table,
+        cluster_assignments_path=plot_cfg.cluster_assignments_tsv or None,
+        cluster_summary_path=plot_cfg.cluster_summary_tsv or None,
+    )
+    plot_targets = _select_plot_targets(candidate_df, plot_cfg)
     plot_dir = Path(output_dir) / "plots"
     for target_id in plot_targets:
         plot_candidate_architecture(sprb_df, hits_df, target_id, plot_dir, plot_cfg)
+    return plot_targets
+
+
+def run_plotting_for_result_dir(result_dir: str | Path, output_root: str | Path, plot_cfg: PlotStyleConfig) -> list[str]:
+    result_dir = Path(result_dir)
+    hits_df = pd.read_csv(result_dir / "hits.tsv", sep="\t")
+    candidate_df = pd.read_csv(result_dir / "sprb_like_candidates.tsv", sep="\t")
+    destination = Path(output_root) / result_dir.name if Path(output_root) != result_dir else result_dir
+    return run_plotting(candidate_df, hits_df, plot_cfg, destination)

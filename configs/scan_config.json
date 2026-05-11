@@ -1,0 +1,41 @@
+{
+  "query_fasta": "/Users/shulei/Documents/2026_Chemotaxis/sprb_domains/grouped_for_hmm_blosum62/sprb_smf_panel.fasta",
+  "output_dir": "/Users/shulei/PycharmProjects/Biopython/sprB/sprb_genome_scan/output",
+  "target_input": "/Users/shulei/PycharmProjects/Biopython/sprB/ncbi_gliding_genomes",
+  "target_mode": "ncbi_genome_dir",
+  "target_glob": "*_protein.faa",
+  "mmseqs_bin": "mmseqs",
+  "threads": 8,
+  "force_rerun": true,
+  "verbose": true,
+  "mmseqs": {
+    "sensitivity": 7.5,
+    "min_seq_id": 0.15,
+    "evalue": 0.001,
+    "max_seqs": 5000,
+    "cov_mode": 0,
+    "min_coverage": 0.0,
+    "alt_ali": 20
+  },
+  "filter_hits": {
+    "min_bits": 30,
+    "min_aln_len": 50,
+    "min_pident": 15
+  },
+  "filter_protein": {
+    "min_length": 500,
+    "min_hits_per_protein": 3,
+    "min_unique_families": 2,
+    "min_unique_members": 2,
+    "min_cluster_span_coverage": 0.2,
+    "min_union_covered_len": 200,
+    "min_union_coverage": 0.08,
+    "max_gap_between_hits": 120,
+    "require_repeated_family": false
+  },
+  "plot_filter_hits": {
+    "min_bits": 35,
+    "min_aln_len": 60,
+    "min_pident": 15
+  }
+}

@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import logging
+import gzip
 
 import pandas as pd
 
-from .config import FilterHitsConfig, MMseqsConfig, PlotHitFilterConfig, RunConfig
+from .config import FilterHitsConfig, MMseqsConfig, PlotHitFilterConfig, ScanConfig
 from .utils import extract_family, extract_member, remove_prefix_artifacts, run_command
 
 
@@ -31,6 +32,13 @@ class ScanPaths:
     plots_dir: Path
 
 
+@dataclass
+class TargetSpec:
+    genome_name: str
+    fasta_path: Path
+    output_dir: Path
+
+
 def build_scan_paths(output_dir: str | Path) -> ScanPaths:
     output_dir = Path(output_dir)
     tmp_dir = output_dir / "tmp_mmseqs"
@@ -46,6 +54,71 @@ def build_scan_paths(output_dir: str | Path) -> ScanPaths:
         logs_dir=output_dir / "logs",
         plots_dir=output_dir / "plots",
     )
+
+
+def _strip_known_suffixes(path: Path) -> str:
+    name = path.name
+    for suffix in [".faa.gz", ".fasta.gz", ".fa.gz", ".faa", ".fasta", ".fa"]:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return path.stem
+
+
+def discover_targets(config: ScanConfig) -> list[TargetSpec]:
+    target_input = Path(config.target_input or config.target_fasta)
+    if not target_input.exists():
+        raise FileNotFoundError(f"Target input not found: {target_input}")
+
+    mode = config.target_mode.lower()
+    if mode not in {"auto", "single_fasta", "ncbi_genome_dir"}:
+        raise ValueError(f"Unsupported target_mode: {config.target_mode}")
+
+    output_root = Path(config.output_dir)
+    if target_input.is_file():
+        genome_name = _strip_known_suffixes(target_input)
+        return [TargetSpec(genome_name=genome_name, fasta_path=target_input, output_dir=output_root)]
+
+    fasta_paths: list[Path] = []
+    if mode in {"auto", "ncbi_genome_dir"}:
+        for child in sorted(target_input.iterdir()):
+            if not child.is_dir():
+                continue
+            matches = sorted(child.glob(config.target_glob))
+            if not matches:
+                matches = sorted(child.glob(config.target_glob + ".gz"))
+            if matches:
+                fasta_paths.append(matches[0])
+
+    if not fasta_paths and mode == "auto":
+        fasta_paths = sorted(target_input.glob(config.target_glob))
+        if not fasta_paths:
+            fasta_paths = sorted(target_input.glob(config.target_glob + ".gz"))
+
+    if not fasta_paths:
+        raise FileNotFoundError(
+            f"No target FASTA files matching '{config.target_glob}' were found under: {target_input}"
+        )
+
+    targets = []
+    for fasta_path in fasta_paths:
+        genome_name = fasta_path.parent.name if fasta_path.parent != target_input else _strip_known_suffixes(fasta_path)
+        targets.append(
+            TargetSpec(
+                genome_name=genome_name,
+                fasta_path=fasta_path,
+                output_dir=output_root / genome_name,
+            )
+        )
+    return targets
+
+
+def _materialize_target_fasta(target_path: Path, tmp_dir: Path) -> Path:
+    if target_path.suffix != ".gz":
+        return target_path
+    materialized = tmp_dir / _strip_known_suffixes(target_path)
+    with gzip.open(target_path, "rt", encoding="utf-8") as src, materialized.open("w", encoding="utf-8") as dst:
+        dst.write(src.read())
+    return materialized
 
 
 def prepare_for_rerun(paths: ScanPaths, force_rerun: bool, logger: logging.Logger | None = None) -> None:
@@ -173,22 +246,26 @@ def build_plot_df(df: pd.DataFrame, filter_cfg: PlotHitFilterConfig) -> pd.DataF
     ].copy()
 
 
-def run_scan(config: RunConfig, logger: logging.Logger | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def run_scan_for_target(
+    config: ScanConfig,
+    target_spec: TargetSpec,
+    logger: logging.Logger | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     query_fasta = Path(config.query_fasta)
-    target_fasta = Path(config.target_fasta)
     if not query_fasta.exists():
         raise FileNotFoundError(f"Query fasta not found: {query_fasta}")
-    if not target_fasta.exists():
-        raise FileNotFoundError(f"Target fasta not found: {target_fasta}")
+    if not target_spec.fasta_path.exists():
+        raise FileNotFoundError(f"Target fasta not found: {target_spec.fasta_path}")
 
-    paths = build_scan_paths(config.output_dir)
-    for path in [Path(config.output_dir), paths.logs_dir, paths.tmp_dir]:
+    paths = build_scan_paths(target_spec.output_dir)
+    for path in [target_spec.output_dir, paths.logs_dir, paths.tmp_dir]:
         path.mkdir(parents=True, exist_ok=True)
 
     prepare_for_rerun(paths, config.force_rerun, logger=logger)
-    for path in [Path(config.output_dir), paths.logs_dir, paths.tmp_dir]:
+    for path in [target_spec.output_dir, paths.logs_dir, paths.tmp_dir]:
         path.mkdir(parents=True, exist_ok=True)
 
+    target_fasta = _materialize_target_fasta(target_spec.fasta_path, paths.tmp_dir)
     ensure_mmseqs_db(query_fasta, paths.query_db, config.mmseqs_bin, logger=logger, force_rerun=config.force_rerun)
     ensure_mmseqs_db(target_fasta, paths.target_db, config.mmseqs_bin, logger=logger, force_rerun=config.force_rerun)
     run_mmseqs_search(
@@ -216,4 +293,11 @@ def run_scan(config: RunConfig, logger: logging.Logger | None = None) -> tuple[p
         paths.raw_export_tsv.unlink()
     filtered_df = filter_hits(raw_df, config.filter_hits)
     plot_df = build_plot_df(filtered_df, config.plot_filter_hits)
+    for df in (filtered_df, plot_df):
+        if df.empty:
+            df["genome_name"] = pd.Series(dtype=str)
+            df["target_fasta"] = pd.Series(dtype=str)
+        else:
+            df["genome_name"] = target_spec.genome_name
+            df["target_fasta"] = str(target_spec.fasta_path)
     return filtered_df, plot_df
