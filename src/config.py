@@ -44,6 +44,15 @@ class PlotHitFilterConfig:
 
 
 @dataclass
+class AssemblyMetadataConfig:
+    enabled: bool = True
+    report_path: str = ""
+    report_path_relative_to: str = "target_input"
+    display_name_source: str = "organism_name"
+    output_dir_source: str = "organism_plus_accession"
+
+
+@dataclass
 class PlotStyleConfig:
     sprb_module_table: str = ""
     cluster_assignments_tsv: str = ""
@@ -96,6 +105,7 @@ class ScanConfig:
     filter_hits: FilterHitsConfig = field(default_factory=FilterHitsConfig)
     filter_protein: FilterProteinConfig = field(default_factory=FilterProteinConfig)
     plot_filter_hits: PlotHitFilterConfig = field(default_factory=PlotHitFilterConfig)
+    assembly_metadata: AssemblyMetadataConfig = field(default_factory=AssemblyMetadataConfig)
 
 
 @dataclass
@@ -128,10 +138,11 @@ def load_scan_config(path: str | Path) -> ScanConfig:
         filter_hits=FilterHitsConfig(**raw.get("filter_hits", {})),
         filter_protein=FilterProteinConfig(**raw.get("filter_protein", {})),
         plot_filter_hits=PlotHitFilterConfig(**raw.get("plot_filter_hits", raw.get("plot_hits_filter", {}))),
+        assembly_metadata=AssemblyMetadataConfig(**raw.get("assembly_metadata", {})),
         **{
             key: value
             for key, value in raw.items()
-            if key not in {"mmseqs", "filter_hits", "filter_protein", "plot_filter_hits", "plot_hits_filter", "plot"}
+            if key not in {"mmseqs", "filter_hits", "filter_protein", "plot_filter_hits", "plot_hits_filter", "plot", "assembly_metadata"}
         },
     )
     if not config.target_input:

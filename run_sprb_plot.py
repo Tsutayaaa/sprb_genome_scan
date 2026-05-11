@@ -6,7 +6,8 @@ import pandas as pd
 
 from src.config import load_plot_config
 from src.plotting import run_plotting_for_result_dir
-from src.utils import get_logger
+from src.utils import get_logger, progress_stats
+import time
 
 
 DEFAULT_PLOT_CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "plot_config.json"
@@ -51,20 +52,44 @@ def main() -> None:
 
     result_dirs = discover_result_dirs(results_root, config.results_mode)
     logger.info("Resolved %d result directory(ies)", len(result_dirs))
+    run_start = time.time()
 
     plotted_targets = []
-    for result_dir in result_dirs:
-        logger.info("Plotting from result directory: %s", result_dir.name)
-        plotted_targets.extend(run_plotting_for_result_dir(result_dir, Path(config.output_dir), config.plot))
+    for index, result_dir in enumerate(result_dirs, start=1):
+        before_stats = progress_stats(run_start, index - 1, len(result_dirs))
+        logger.info(
+            "Progress %d/%d (%.1f%%) | elapsed=%s | eta=%s | plotting=%s",
+            index,
+            len(result_dirs),
+            before_stats["progress_pct"],
+            before_stats["elapsed_text"],
+            before_stats["eta_text"],
+            result_dir.name,
+        )
+        plotted = run_plotting_for_result_dir(result_dir, Path(config.output_dir), config.plot)
+        plotted_targets.extend(plotted)
+        after_stats = progress_stats(run_start, index, len(result_dirs))
+        logger.info(
+            "Completed %d/%d | result_dir=%s | plotted_targets=%d | elapsed=%s | avg/dir=%s | eta=%s",
+            index,
+            len(result_dirs),
+            result_dir.name,
+            len(plotted),
+            after_stats["elapsed_text"],
+            after_stats["avg_text"],
+            after_stats["eta_text"],
+        )
 
     logs_dir = Path(config.output_dir) / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     write_run_info(config, logs_dir / "plot_run_info.txt")
     plotted_targets_df = pd.DataFrame({"target": plotted_targets})
+    total_stats = progress_stats(run_start, len(result_dirs), len(result_dirs))
 
     print(f"[OK] plot config: {DEFAULT_PLOT_CONFIG_PATH}")
     print(f"[OK] results root: {config.results_root}")
     print(f"[OK] plot output dir: {config.output_dir}")
+    print(f"[OK] elapsed: {total_stats['elapsed_text']}")
     print(f"[OK] plotted targets: {len(plotted_targets_df)}")
 
 

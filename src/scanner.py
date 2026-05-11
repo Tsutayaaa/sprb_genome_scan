@@ -5,11 +5,12 @@ from pathlib import Path
 import shutil
 import logging
 import gzip
+import json
 
 import pandas as pd
 
-from .config import FilterHitsConfig, MMseqsConfig, PlotHitFilterConfig, ScanConfig
-from .utils import extract_family, extract_member, remove_prefix_artifacts, run_command
+from .config import AssemblyMetadataConfig, FilterHitsConfig, MMseqsConfig, PlotHitFilterConfig, ScanConfig
+from .utils import extract_family, extract_member, remove_prefix_artifacts, run_command, safe_filename
 
 
 RAW_COLUMNS = [
@@ -35,6 +36,8 @@ class ScanPaths:
 @dataclass
 class TargetSpec:
     genome_name: str
+    assembly_accession: str
+    organism_name: str
     fasta_path: Path
     output_dir: Path
 
@@ -64,6 +67,78 @@ def _strip_known_suffixes(path: Path) -> str:
     return path.stem
 
 
+def _resolve_report_path(target_input: Path, metadata_cfg: AssemblyMetadataConfig) -> Path | None:
+    if not metadata_cfg.enabled:
+        return None
+
+    if metadata_cfg.report_path:
+        report_path = Path(metadata_cfg.report_path)
+        if report_path.is_absolute():
+            return report_path if report_path.exists() else None
+        base = target_input
+        relative_to = metadata_cfg.report_path_relative_to.lower()
+        if relative_to == "target_input_parent":
+            base = target_input.parent
+        return (base / report_path) if (base / report_path).exists() else None
+
+    candidate_paths = [
+        target_input / "assembly_data_report.jsonl",
+        target_input.parent / "assembly_data_report.jsonl",
+        target_input / "data" / "assembly_data_report.jsonl",
+    ]
+    return next((path for path in candidate_paths if path.exists()), None)
+
+
+def _load_assembly_report_map(target_input: Path, metadata_cfg: AssemblyMetadataConfig) -> dict[str, dict[str, str]]:
+    report_path = _resolve_report_path(target_input, metadata_cfg)
+    if report_path is None:
+        return {}
+
+    metadata = {}
+    with report_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            accession = record.get("accession") or record.get("currentAccession")
+            organism_name = (
+                record.get("organism", {}).get("organismName")
+                or record.get("assemblyInfo", {}).get("biosample", {}).get("description", {}).get("organism", {}).get("organismName")
+                or accession
+            )
+            metadata[accession] = {
+                "accession": accession,
+                "organism_name": organism_name,
+            }
+    return metadata
+
+
+def _choose_display_name(
+    assembly_accession: str,
+    organism_name: str,
+    metadata_cfg: AssemblyMetadataConfig,
+) -> tuple[str, str]:
+    display_source = metadata_cfg.display_name_source.lower()
+    output_source = metadata_cfg.output_dir_source.lower()
+
+    if display_source == "accession":
+        display_name = assembly_accession
+    elif display_source == "organism_plus_accession":
+        display_name = f"{organism_name} ({assembly_accession})"
+    else:
+        display_name = organism_name
+
+    if output_source == "accession":
+        output_name = assembly_accession
+    elif output_source == "organism_name":
+        output_name = organism_name
+    else:
+        output_name = f"{organism_name}__{assembly_accession}" if assembly_accession != organism_name else organism_name
+
+    return display_name, safe_filename(output_name)
+
+
 def discover_targets(config: ScanConfig) -> list[TargetSpec]:
     target_input = Path(config.target_input or config.target_fasta)
     if not target_input.exists():
@@ -74,9 +149,18 @@ def discover_targets(config: ScanConfig) -> list[TargetSpec]:
         raise ValueError(f"Unsupported target_mode: {config.target_mode}")
 
     output_root = Path(config.output_dir)
+    metadata_map = _load_assembly_report_map(target_input, config.assembly_metadata)
     if target_input.is_file():
         genome_name = _strip_known_suffixes(target_input)
-        return [TargetSpec(genome_name=genome_name, fasta_path=target_input, output_dir=output_root)]
+        return [
+            TargetSpec(
+                genome_name=genome_name,
+                assembly_accession=genome_name,
+                organism_name=genome_name,
+                fasta_path=target_input,
+                output_dir=output_root,
+            )
+        ]
 
     fasta_paths: list[Path] = []
     if mode in {"auto", "ncbi_genome_dir"}:
@@ -101,12 +185,21 @@ def discover_targets(config: ScanConfig) -> list[TargetSpec]:
 
     targets = []
     for fasta_path in fasta_paths:
-        genome_name = fasta_path.parent.name if fasta_path.parent != target_input else _strip_known_suffixes(fasta_path)
+        assembly_accession = fasta_path.parent.name if fasta_path.parent != target_input else _strip_known_suffixes(fasta_path)
+        metadata = metadata_map.get(assembly_accession, {})
+        organism_name = metadata.get("organism_name", assembly_accession)
+        genome_name, output_name = _choose_display_name(
+            assembly_accession=assembly_accession,
+            organism_name=organism_name,
+            metadata_cfg=config.assembly_metadata,
+        )
         targets.append(
             TargetSpec(
                 genome_name=genome_name,
+                assembly_accession=assembly_accession,
+                organism_name=organism_name,
                 fasta_path=fasta_path,
-                output_dir=output_root / genome_name,
+                output_dir=output_root / output_name,
             )
         )
     return targets
@@ -296,8 +389,12 @@ def run_scan_for_target(
     for df in (filtered_df, plot_df):
         if df.empty:
             df["genome_name"] = pd.Series(dtype=str)
+            df["assembly_accession"] = pd.Series(dtype=str)
+            df["organism_name"] = pd.Series(dtype=str)
             df["target_fasta"] = pd.Series(dtype=str)
         else:
             df["genome_name"] = target_spec.genome_name
+            df["assembly_accession"] = target_spec.assembly_accession
+            df["organism_name"] = target_spec.organism_name
             df["target_fasta"] = str(target_spec.fasta_path)
     return filtered_df, plot_df

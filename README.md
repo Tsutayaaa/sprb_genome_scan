@@ -39,6 +39,16 @@ The scan stage supports two native input styles:
 
 For NCBI-style bundle directories, the scanner will automatically walk each genome subdirectory and pick the first file matching `target_glob` such as `*_protein.faa` or `*_protein.faa.gz`.
 
+## Assembly Metadata
+
+The scan config can optionally read NCBI `assembly_data_report.jsonl` metadata to map accessions like `GCF_000009925.1` to readable organism names.
+
+- `assembly_metadata.enabled`: turn metadata mapping on or off
+- `assembly_metadata.report_path`: optional manual path to `assembly_data_report.jsonl`
+- `assembly_metadata.report_path_relative_to`: resolve relative `report_path` from `target_input` or `target_input_parent`
+- `assembly_metadata.display_name_source`: choose `organism_name`, `accession`, or `organism_plus_accession`
+- `assembly_metadata.output_dir_source`: choose `organism_plus_accession`, `organism_name`, or `accession`
+
 ## Stage 2: Plot
 
 After copying the scan outputs back to your local machine, update [configs/plot_config.json](/Users/shulei/PycharmProjects/Biopython/sprB/sprb_genome_scan/configs/plot_config.json), then run:

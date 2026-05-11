@@ -22,23 +22,36 @@ def summarize_by_protein(df: pd.DataFrame) -> pd.DataFrame:
     group_cols = ["target"]
     if "genome_name" in df.columns:
         group_cols = ["genome_name", "target"]
+    if "assembly_accession" in df.columns and "assembly_accession" not in group_cols:
+        group_cols = ["genome_name", "assembly_accession", "target"] if "genome_name" in df.columns else ["assembly_accession", "target"]
     if "target_fasta" in df.columns and "target_fasta" not in group_cols:
-        group_cols = ["genome_name", "target_fasta", "target"] if "genome_name" in df.columns else ["target_fasta", "target"]
+        if "assembly_accession" in df.columns and "genome_name" in df.columns:
+            group_cols = ["genome_name", "assembly_accession", "target_fasta", "target"]
+        elif "genome_name" in df.columns:
+            group_cols = ["genome_name", "target_fasta", "target"]
+        else:
+            group_cols = ["target_fasta", "target"]
 
     for group_key, sub in df.groupby(group_cols):
         sub = sub.sort_values("tmin").copy()
         if isinstance(group_key, tuple):
-            if len(group_cols) == 3:
+            if len(group_cols) == 4:
+                genome_name, assembly_accession, target_fasta, target = group_key
+            elif len(group_cols) == 3:
                 genome_name, target_fasta, target = group_key
+                assembly_accession = sub["assembly_accession"].iloc[0] if "assembly_accession" in sub.columns else ""
             elif len(group_cols) == 2 and group_cols[0] == "genome_name":
                 genome_name, target = group_key
+                assembly_accession = sub["assembly_accession"].iloc[0] if "assembly_accession" in sub.columns else ""
                 target_fasta = sub["target_fasta"].iloc[0] if "target_fasta" in sub.columns else ""
             else:
                 target_fasta, target = group_key
                 genome_name = sub["genome_name"].iloc[0] if "genome_name" in sub.columns else ""
+                assembly_accession = sub["assembly_accession"].iloc[0] if "assembly_accession" in sub.columns else ""
         else:
             target = group_key
             genome_name = sub["genome_name"].iloc[0] if "genome_name" in sub.columns else ""
+            assembly_accession = sub["assembly_accession"].iloc[0] if "assembly_accession" in sub.columns else ""
             target_fasta = sub["target_fasta"].iloc[0] if "target_fasta" in sub.columns else ""
         tlen = int(sub["tlen"].max())
         cluster_start = int(sub["tmin"].min())
@@ -90,13 +103,17 @@ def summarize_by_protein(df: pd.DataFrame) -> pd.DataFrame:
         }
         if "genome_name" in df.columns:
             row["genome_name"] = genome_name
+        if "assembly_accession" in df.columns:
+            row["assembly_accession"] = assembly_accession
+        if "organism_name" in df.columns:
+            row["organism_name"] = sub["organism_name"].iloc[0]
         if "target_fasta" in df.columns:
             row["target_fasta"] = target_fasta
         rows.append(row)
 
     out = pd.DataFrame(rows)
     ordered_cols = []
-    for col in ["genome_name", "target_fasta"]:
+    for col in ["genome_name", "assembly_accession", "organism_name", "target_fasta"]:
         if col in out.columns:
             ordered_cols.append(col)
     ordered_cols.extend([col for col in SUMMARY_COLUMNS if col in out.columns])

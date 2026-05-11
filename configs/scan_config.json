@@ -8,6 +8,13 @@
   "threads": 8,
   "force_rerun": true,
   "verbose": true,
+  "assembly_metadata": {
+    "enabled": true,
+    "report_path": "",
+    "report_path_relative_to": "target_input",
+    "display_name_source": "organism_name",
+    "output_dir_source": "organism_plus_accession"
+  },
   "mmseqs": {
     "sensitivity": 7.5,
     "min_seq_id": 0.15,

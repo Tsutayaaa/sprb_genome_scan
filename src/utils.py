@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Iterable
+import time
 
 
 def get_logger(verbose: bool = True) -> logging.Logger:
@@ -80,3 +81,28 @@ def remove_tree(path: Path) -> None:
     if path.exists():
         shutil.rmtree(path)
 
+
+def format_duration(seconds: float) -> str:
+    seconds = max(0, int(round(seconds)))
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def progress_stats(start_time: float, completed: int, total: int) -> dict[str, float | str]:
+    elapsed = max(0.0, time.time() - start_time)
+    avg = elapsed / completed if completed > 0 else 0.0
+    remaining = max(0, total - completed)
+    eta = avg * remaining
+    progress_pct = (completed / total * 100.0) if total > 0 else 0.0
+    return {
+        "elapsed_seconds": elapsed,
+        "avg_seconds": avg,
+        "eta_seconds": eta,
+        "progress_pct": progress_pct,
+        "elapsed_text": format_duration(elapsed),
+        "avg_text": format_duration(avg),
+        "eta_text": format_duration(eta),
+    }
